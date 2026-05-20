@@ -56,58 +56,77 @@ Ensure you have **AutoHotkey v2.0+** installed on your Windows system. Create a 
 #Requires AutoHotkey v2.0
 Persistent
 
-; --- CONFIGURE YOUR PORT HERE ---
-SerialPort := "COM3" 
+arduinoPort := ""
 
-; Open serial connection with Arduino Nano (9600 Baud)
-try {
-    serial := FileOpen(SerialPort, "r+")
-} catch {
-    MsgBox("Failed to open " . SerialPort . ". Check connection or COM assignment.")
+; 1. SCAN WINDOWS REGISTRY FOR ACTIVE COM PORTS
+Loop Reg, "HKLM\HARDWARE\DEVICEMAP\SERIALCOMM" {
+    regValue := RegRead()
+    if (regValue != "") {
+        ; Prepend the format required for Windows file system communication
+        arduinoPort := "\\.\" . regValue
+        break ; Grab the first active port discovered
+    }
+}
+
+; 2. EXIT GRACEFULLY IF NO ARDUINO IS DETECTED
+if (arduinoPort == "") {
+    MsgBox "No USB Stream Deck detected! Please make sure it is plugged in.", "Stream Deck Error", 48
     ExitApp
 }
+
+; 3. CONFIGURE DEVICE PORT SETTINGS ON THE FLY
+RunWait(A_ComSpec " /c mode " arduinoPort " BAUD=9600 PARITY=N DATA=8 STOP=1", , "Hide")
+
+; 4. OPEN COM LINE LISTENERS
+serial := FileOpen(arduinoPort, "r")
+
+if !serial {
+    MsgBox "Found device on " SubStr(arduinoPort, 5) " but couldn't open it. Is Serial Monitor still open?", "Port Blocked", 48
+    ExitApp
+}
+
+; Alert user of automatic successful binding
+TrayTip "Stream Deck Connected", "Auto-detected and listening on " SubStr(arduinoPort, 5), 1
 
 SetTimer(ReadSerial, 10)
 
 ReadSerial() {
-    global serial
-    if (serial && MsgWaitForLine(serial)) {
-        line := Trim(serial.ReadLine())
+    if (line := serial.ReadLine()) {
+        line := Trim(line, "`r`n ")
         
-        if (line == "SCENE1") {
-            if !WinExist("ahk_exe obs64.exe")
-                Run("C:\Program Files\obs-studio\bin\64bit\obs64.exe")
+        if (line == "")
+            return
+            
+        if (line == "SCENE1")
+            Send "{F13}"
+        else if (line == "SCENE2")
+            Send "{F14}"
+        else if (line == "MUTE")
+            Send "{F15}"
+        else if (line == "WEBCAM")
+            Send "{F16}"
+        else if (line == "VOL_UP")
+            Send "{Volume_Up}"
+        else if (line == "VOL_DOWN")
+            Send "{Volume_Down}"
+        else if (line == "TELEGRAM")
+        {
+            ; Targets: AppData\Roaming\Telegram Desktop\Telegram.exe
+            telegramPath := A_AppData . "\Telegram Desktop\Telegram.exe"
+            if FileExist(telegramPath)
+                Run(telegramPath)
+            else
+                MsgBox("Telegram executable not found at:`n" . telegramPath)
         }
-        else if (line == "SCENE2") {
-            Run("chrome.exe")
-        }
-        else if (line == "MUTE") {
-            Send("{Volume_Mute}")
-        }
-        else if (line == "WEBCAM") {
-            Send("{F16}") ; Assign this hotkey inside OBS to toggle camera source
-        }
-        else if (line == "TELEGRAM") {
-            if telegramPID := ProcessExist("Telegram.exe")
-                ProcessClose(telegramPID)
-            else if FileExist(A_AppData . "\Telegram Desktop\Telegram.exe")
-                Run(A_AppData . "\Telegram Desktop\Telegram.exe")
-        }
-        else if (line == "SPOTIFY") {
-            if spotifyPID := ProcessExist("Spotify.exe")
-                ProcessClose(spotifyPID)
-            else if FileExist(A_AppData . "\Spotify\Spotify.exe")
-                Run(A_AppData . "\Spotify\Spotify.exe")
-        }
-        else if (line == "VOL_UP") {
-            Send("{Volume_Up}")
-        }
-        else if (line == "VOL_DOWN") {
-            Send("{Volume_Down}")
+        ; --- New Button 6: Spotify ---
+        else if (line == "SPOTIFY")
+        {
+            ; Targets: AppData\Roaming\Spotify\Spotify.exe
+            spotifyPath := A_AppData . "\Spotify\Spotify.exe"
+            if FileExist(spotifyPath)
+                Run(spotifyPath)
+            else
+                MsgBox("Spotify executable not found at:`n" . spotifyPath)
         }
     }
-}
-
-MsgWaitForLine(file) {
-    return file.Length > 0
 }
