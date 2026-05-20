@@ -105,7 +105,6 @@ ReadSerial() {
             Send "{Volume_Down}"
         else if (line == "TELEGRAM")
         {
-            ; Targets: AppData\Roaming\Telegram Desktop\Telegram.exe
             telegramPath := A_AppData . "\Telegram Desktop\Telegram.exe"
             if FileExist(telegramPath)
                 Run(telegramPath)
@@ -114,7 +113,6 @@ ReadSerial() {
         }
         else if (line == "SPOTIFY")
         {
-            ; Targets: AppData\Roaming\Spotify\Spotify.exe
             spotifyPath := A_AppData . "\Spotify\Spotify.exe"
             if FileExist(spotifyPath)
                 Run(spotifyPath)
