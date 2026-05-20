@@ -58,7 +58,6 @@ Persistent
 
 arduinoPort := ""
 
-; 1. SCAN WINDOWS REGISTRY FOR ACTIVE COM PORTS
 Loop Reg, "HKLM\HARDWARE\DEVICEMAP\SERIALCOMM" {
     regValue := RegRead()
     if (regValue != "") {
@@ -68,16 +67,13 @@ Loop Reg, "HKLM\HARDWARE\DEVICEMAP\SERIALCOMM" {
     }
 }
 
-; 2. EXIT GRACEFULLY IF NO ARDUINO IS DETECTED
 if (arduinoPort == "") {
     MsgBox "No USB Stream Deck detected! Please make sure it is plugged in.", "Stream Deck Error", 48
     ExitApp
 }
 
-; 3. CONFIGURE DEVICE PORT SETTINGS ON THE FLY
 RunWait(A_ComSpec " /c mode " arduinoPort " BAUD=9600 PARITY=N DATA=8 STOP=1", , "Hide")
 
-; 4. OPEN COM LINE LISTENERS
 serial := FileOpen(arduinoPort, "r")
 
 if !serial {
@@ -85,7 +81,6 @@ if !serial {
     ExitApp
 }
 
-; Alert user of automatic successful binding
 TrayTip "Stream Deck Connected", "Auto-detected and listening on " SubStr(arduinoPort, 5), 1
 
 SetTimer(ReadSerial, 10)
@@ -118,7 +113,6 @@ ReadSerial() {
             else
                 MsgBox("Telegram executable not found at:`n" . telegramPath)
         }
-        ; --- New Button 6: Spotify ---
         else if (line == "SPOTIFY")
         {
             ; Targets: AppData\Roaming\Spotify\Spotify.exe
