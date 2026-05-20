@@ -61,9 +61,8 @@ arduinoPort := ""
 Loop Reg, "HKLM\HARDWARE\DEVICEMAP\SERIALCOMM" {
     regValue := RegRead()
     if (regValue != "") {
-        ; Prepend the format required for Windows file system communication
         arduinoPort := "\\.\" . regValue
-        break ; Grab the first active port discovered
+        break 
     }
 }
 
