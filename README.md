@@ -1,123 +1,154 @@
-# stream-deck-diy
-A Simple Stream Deck DIY.
+# Arduino Nano Stream Deck DIY
 
-A custom, open-source hardware macro pad built using an Arduino Nano, an I2C OLED display, a volume potentiometer, and 6 tactile push buttons. The hardware interfaces seamlessly with a background AutoHotkey (v2) script on Windows to trigger scene swaps in OBS, toggle system audio and webcams via custom keys, and launch or gracefully close applications like Telegram and Spotify with a single button press.
+A DIY 6-button stream deck with an OLED display and a volume knob, built on an
+Arduino Nano.
+
+## What's Included
+
+| File | Purpose |
+|---|---|
+| `streamdeck.ino` | Arduino sketch — reads buttons/pot, drives the OLED, sends serial commands |
+| `streamdeck_listener.py` | PC-side script — listens to serial, simulates keypresses, controls system volume |
+
+## Hardware
+
+- Arduino Nano
+- 128x64 I2C OLED display (SSD1306, 4 pins: VCC, GND, SCL, SDA)
+- 6x momentary push buttons
+- 1x B5K potentiometer
+
+## Wiring
+
+| Component | Nano Pin |
+|---|---|
+| OLED SDA | A4 |
+| OLED SCL | A5 |
+| OLED VCC | 5V |
+| OLED GND | GND |
+| Button 1 (S1) | D2 → other leg to GND |
+| Button 2 (S2) | D3 → other leg to GND |
+| Button 3 (CAM) | D4 → other leg to GND |
+| Button 4 (VC) | D5 → other leg to GND |
+| Button 5 (SPT) | D6 → other leg to GND |
+| Button 6 (TEL) | D7 → other leg to GND |
+| Potentiometer outer legs | 5V and GND |
+| Potentiometer wiper (middle) | A0 |
+
+## Button Layout
+
+| Pin | Key sent | OLED label | Behavior |
+|---|---|---|---|
+| D2 | F13 | S1 | static |
+| D3 | F14 | S2 | static |
+| D4 | F15 | CAM | toggles ON/OFF on press, reverts to "CAM" when another button is pressed |
+| D5 | F16 | VC | toggles ON/OFF on press, reverts to "VC" when another button is pressed |
+| D6 | F17 | SPT | static |
+| D7 | F18 | TEL | static |
+
+The potentiometer controls system volume, shown on the OLED as a speaker
+icon between a "−" and "+", with the number of sound-wave arcs scaling with
+volume level (0% shows a muted "X").
 
 ---
 
-## 🚀 Features
+## Part 1: Flashing the Arduino
 
-*   **Dynamic OLED Dashboard:** Features a clean, single-row ticker tape UI. Pressing any button clean-swaps the header to display active states (`MIC: ON`, `CAM: OFF`, `STATUS: SPOTIFY`, etc.).
-*   **Giant Volume Readout:** Displays a massive, responsive central numeric volume gauge ($0-100\%$) and matching horizontal progress slider.
-*   **Intelligent App Toggling:** Multi-functional buttons that use AutoHotkey process tracking to open an application if it is closed, or gracefully terminate its background tasks if it is open.
-*   **Zero External Components:** Utilizes the Arduino's internal `INPUT_PULLUP` network, completely removing the need for external pull-down resistors on the breadboard.
-
----
-
-## 🛠️ Hardware Requirements & Pin Assignments
-
-### Core Components
-*   1x Arduino Nano (or compatible microcontroller)
-*   1x 0.96" SSD1306 I2C OLED Display ($128 \times 64$)
-*   1x 10k Linear Rotary Potentiometer
-*   6x Tactile Push Buttons
-*   1x Solderless Breadboard & Solid Core Jumper Wires
-
-### GPIO Pin Configuration Matrix
-
-| Component | Component Pin | Arduino Nano Pin | Destination / Function |
-| :--- | :--- | :--- | :--- |
-| **OLED Screen** | VCC / GND | 5V / GND Rails | System Power Bus |
-| | SDA / SCL | **A4** / **A5** | Hardware I2C Interface |
-| **Volume Dial** | Middle Pin (Wiper)| **A0** | Analog Voltage Sensor |
-| **Button 1** | Input Pin | **D2** | OBS: Switch to Scene 1 |
-| **Button 2** | Input Pin | **D3** | OBS: Switch to Scene 2 |
-| **Button 3** | Input Pin | **D4** | Global Microphone Mute Toggle |
-| **Button 4** | Input Pin | **D5** | Webcam View Matrix Toggle (`F16`) |
-| **Button 5** | Input Pin | **D6** | Telegram Open/Close Toggle |
-| **Button 6** | Input Pin | **D7** | Spotify Open/Close Toggle |
-
-> **Wiring Note:** Connect the opposite diagonal leg of all 6 tactile push buttons directly to the breadboard's shared **Blue Negative Ground Rail (-)**.
+1. Open Arduino IDE.
+2. Install required libraries via **Tools → Manage Libraries**:
+   - `Adafruit GFX Library`
+   - `Adafruit SSD1306`
+3. Select **Tools → Board → Arduino Nano**, and pick the correct processor
+   (Old Bootloader / ATmega328P, depending on your specific Nano clone).
+4. Select the correct **Port** under **Tools → Port**.
+5. Open `streamdeck.ino`, click **Upload**.
+6. Wire the hardware as described above. The OLED should light up showing
+   the 6 labels and the volume row.
 
 ---
 
-## 💻 Software Setup
+## Part 2: PC-Side Listener Script
 
-### 1. Arduino Firmware
-1. Open the Arduino IDE.
-2. Install the **Adafruit SSD1306** and **Adafruit GFX** libraries through the Library Manager.
-3. Upload the controller firmware code (`.ino`) to your Arduino Nano.
-4. Note down the active **COM Port** (e.g., COM3) assigned to your device by Windows via the Device Manager.
+The listener script runs on your computer, reads the serial messages coming
+from the Nano, and converts them into actual keypresses and volume changes.
 
-### 2. AutoHotkey (v2) Integration
-Ensure you have **AutoHotkey v2.0+** installed on your Windows system. Create a script named `Stream.ahk` using the configuration snippet below, ensuring you modify the port settings to match your specific hardware setup:
+### Option A — Run from Python directly
 
-```autohotkey
-#Requires AutoHotkey v2.0
-Persistent
+1. Install Python 3 if you don't already have it: https://www.python.org/downloads/
+2. Install dependencies:
+   ```
+   pip install pyserial keyboard pycaw comtypes
+   ```
+   (`pycaw` and `comtypes` are Windows-only and used for volume control. On
+   Mac/Linux the script still runs — it just skips volume control.)
+3. Run it:
+   ```
+   python streamdeck_listener.py
+   ```
+4. It will try to auto-detect the Nano's COM port. If it can't, it will list
+   available ports and ask you to pick one.
 
-arduinoPort := ""
+### Option B — Package it as a Windows `.exe` (recommended for sharing)
 
-Loop Reg, "HKLM\HARDWARE\DEVICEMAP\SERIALCOMM" {
-    regValue := RegRead()
-    if (regValue != "") {
-        arduinoPort := "\\.\" . regValue
-        break 
-    }
-}
+This lets anyone run the listener without installing Python at all — just
+double-click the `.exe`.
 
-if (arduinoPort == "") {
-    MsgBox "No USB Stream Deck detected! Please make sure it is plugged in.", "Stream Deck Error", 48
-    ExitApp
-}
+> **Note:** You must build the `.exe` on a Windows machine. PyInstaller
+> builds for whatever OS it runs on, so building on Mac/Linux will not
+> produce a Windows-compatible executable.
 
-RunWait(A_ComSpec " /c mode " arduinoPort " BAUD=9600 PARITY=N DATA=8 STOP=1", , "Hide")
+1. On a Windows PC, install the dependencies plus PyInstaller:
+   ```
+   pip install pyserial keyboard pycaw comtypes pyinstaller
+   ```
+2. In the folder containing `streamdeck_listener.py`, run:
+   ```
+   pyinstaller --onefile --console --name StreamDeckListener streamdeck_listener.py
+   ```
+3. PyInstaller creates several folders. Your finished executable is at:
+   ```
+   dist\StreamDeckListener.exe
+   ```
+4. Share just that one `.exe` file — it's fully self-contained.
 
-serial := FileOpen(arduinoPort, "r")
+**Flag reference:**
+- `--onefile` — bundles everything into a single `.exe` file.
+- `--console` — keeps a console window open so the user can see connection
+  status, detected port, and button-press logs. Needed since the script can
+  prompt for port selection if auto-detect fails.
 
-if !serial {
-    MsgBox "Found device on " SubStr(arduinoPort, 5) " but couldn't open it. Is Serial Monitor still open?", "Port Blocked", 48
-    ExitApp
-}
+### (Optional) Auto-start on Windows boot
 
-TrayTip "Stream Deck Connected", "Auto-detected and listening on " SubStr(arduinoPort, 5), 1
+To have the listener launch automatically whenever the PC starts:
 
-SetTimer(ReadSerial, 10)
+1. Press `Win + R`, type `shell:startup`, press Enter. This opens the
+   Startup folder.
+2. Create a shortcut to `StreamDeckListener.exe` and drop it in that folder.
 
-ReadSerial() {
-    if (line := serial.ReadLine()) {
-        line := Trim(line, "`r`n ")
-        
-        if (line == "")
-            return
-            
-        if (line == "SCENE1")
-            Send "{F13}"
-        else if (line == "SCENE2")
-            Send "{F14}"
-        else if (line == "MUTE")
-            Send "{F15}"
-        else if (line == "WEBCAM")
-            Send "{F16}"
-        else if (line == "VOL_UP")
-            Send "{Volume_Up}"
-        else if (line == "VOL_DOWN")
-            Send "{Volume_Down}"
-        else if (line == "TELEGRAM")
-        {
-            telegramPath := A_AppData . "\Telegram Desktop\Telegram.exe"
-            if FileExist(telegramPath)
-                Run(telegramPath)
-            else
-                MsgBox("Telegram executable not found at:`n" . telegramPath)
-        }
-        else if (line == "SPOTIFY")
-        {
-            spotifyPath := A_AppData . "\Spotify\Spotify.exe"
-            if FileExist(spotifyPath)
-                Run(spotifyPath)
-            else
-                MsgBox("Spotify executable not found at:`n" . spotifyPath)
-        }
-    }
-}
+---
+
+## Serial Protocol Reference
+
+The Arduino sends plain text lines over serial at **115200 baud**:
+
+| Message | Meaning |
+|---|---|
+| `KEY:13` … `KEY:18` | A button was pressed (momentary event) |
+| `VOL:0` … `VOL:100` | Current potentiometer position as a volume percentage (sent only when it changes) |
+
+This protocol is intentionally simple so you can extend it — e.g. add new
+message types for additional buttons, RGB feedback, or app-specific
+commands — without needing to change how the Arduino and PC connect.
+
+## Troubleshooting
+
+- **OLED stays blank**: double-check SDA/SCL wiring and that the OLED's I2C
+  address matches `0x3C` (most common). Some boards use `0x3D` — if so,
+  change the `display.begin(...)` call in `streamdeck.ino`.
+- **Script can't find the Nano**: confirm the correct COM port appears in
+  Windows Device Manager under "Ports (COM & LPT)". You may need a CH340
+  driver if it's a clone Nano.
+- **Keypresses don't register in an app**: confirm the target app has
+  F13–F18 assigned as hotkeys in its own settings — these aren't standard
+  keys most software listens for by default.
+- **Volume doesn't change**: confirm `pycaw` and `comtypes` installed
+  successfully; volume control only works on Windows.
