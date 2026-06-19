@@ -4,164 +4,213 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET    -1
+#define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Pin Definitions
-const int BUTTON_SCENE1 = 2;
-const int BUTTON_SCENE2 = 3;
-const int BUTTON_MUTE   = 4;
-const int BUTTON_CAM    = 5; 
-const int POT_PIN       = A0;
-const int BUTTON_APP1 = 6;
-const int BUTTON_APP2 = 7;
+const uint8_t BUTTON_PINS[6] = {2, 3, 4, 5, 6, 7};
+const uint8_t KEY_NUMBERS[6] = {13, 14, 15, 16, 17, 18};
+const char* DEFAULT_LABELS[6] = {"S1", "S2", "CAM", "VC", "SPT", "TEL"};
 
-// Button Input Processing States
-bool lastScene1State = HIGH;
-bool lastScene2State = HIGH;
-bool lastMuteState   = HIGH;
-bool lastCamState    = HIGH;
-bool lastApp1State    = HIGH;
-bool lastApp2State    = HIGH;
+// Indices of the two toggle-style buttons (CAM and VC)
+const uint8_t CAM_INDEX = 2;
+const uint8_t VC_INDEX = 3;
 
+bool camToggleOn = false;
+bool vcToggleOn = false;
+bool camShowingToggle = false; // true = currently showing ON/OFF instead of "CAM"
+bool vcShowingToggle = false;  // true = currently showing ON/OFF instead of "VC"
 
-// System Toggle Variables
-bool isAudioOn = true;    
-bool isWebcamOn = false;   
-String activeStatus = "SYSTEM READY"; // Dynamic text for the top row
+bool lastState[6] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+unsigned long lastDebounceTime[6] = {0, 0, 0, 0, 0, 0};
+const unsigned long DEBOUNCE_MS = 25;
 
-int stableVolume = 0;
-const int noiseThreshold = 2;
+const int POT_PIN = A0;
+int lastVolPercent = -1;
+unsigned long lastPotRead = 0;
+const unsigned long POT_READ_INTERVAL = 50;
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
-  pinMode(BUTTON_SCENE1, INPUT_PULLUP);
-  pinMode(BUTTON_SCENE2, INPUT_PULLUP);
-  pinMode(BUTTON_MUTE,   INPUT_PULLUP);
-  pinMode(BUTTON_CAM,    INPUT_PULLUP);
-  pinMode(BUTTON_APP1,   INPUT_PULLUP);
-  pinMode(BUTTON_APP2,   INPUT_PULLUP);
-
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    for(;;); 
+  for (uint8_t i = 0; i < 6; i++) {
+    pinMode(BUTTON_PINS[i], INPUT_PULLUP);
   }
-  
-  int rawStart = analogRead(POT_PIN);
-  stableVolume = map(rawStart, 0, 1023, 0, 100);
-  updateDisplay();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    // If display doesn't init, halt with a blinking indicator on D13
+    pinMode(13, OUTPUT);
+    while (true) {
+      digitalWrite(13, !digitalRead(13));
+      delay(200);
+    }
+  }
+
+  display.clearDisplay();
+  display.display();
+
+  drawUI(0); // initial draw, volume unknown until first pot read
 }
 
 void loop() {
-  bool changed = false;
-
-  // --- 1. READ ALL PUSH BUTTONS ---
-  bool scene1State = digitalRead(BUTTON_SCENE1);
-  bool scene2State = digitalRead(BUTTON_SCENE2);
-  bool muteState   = digitalRead(BUTTON_MUTE);
-  bool camState    = digitalRead(BUTTON_CAM);
-  bool app1State   = digitalRead(BUTTON_APP1);
-  bool app2State   = digitalRead(BUTTON_APP2);
-
-  if (scene1State == LOW && lastScene1State == HIGH) { 
-    Serial.println("SCENE1"); 
-    activeStatus = "OBS: SCENE 1"; // Overwrites top line
-    changed = true;
-    delay(150); 
-  }
-  lastScene1State = scene1State;
-
-  if (scene2State == LOW && lastScene2State == HIGH) { 
-    Serial.println("SCENE2"); 
-    activeStatus = "OBS: SCENE 2"; // Overwrites top line
-    changed = true;
-    delay(150); 
-  }
-  lastScene2State = scene2State;
-
-  if (muteState == LOW && lastMuteState == HIGH) { 
-    Serial.println("MUTE"); 
-    isAudioOn = !isAudioOn; 
-    activeStatus = isAudioOn ? "MIC: ON" : "MIC: OFF"; // Overwrites top line
-    changed = true;
-    delay(150); 
-  }
-  lastMuteState = muteState;
-
-  if (camState == LOW && lastCamState == HIGH) { 
-    Serial.println("WEBCAM"); 
-    isWebcamOn = !isWebcamOn; 
-    activeStatus = isWebcamOn ? "CAM: ON" : "CAM: OFF"; // Overwrites top line
-    changed = true;
-    delay(150); 
-  }
-  lastCamState = camState;
-
-  if (app1State == LOW && lastApp1State == HIGH) {
-    Serial.println("TELEGRAM");
-    activeStatus = "APP: TELEGRAM";
-    changed = true;
-    delay(150);
-  }
-  lastApp1State= app1State;
-
-  if (app2State == LOW && lastApp2State == HIGH) {
-    Serial.println("SPOTIFY");
-    activeStatus = "APP: SPOTIFY";
-    changed = true;
-    delay(150);
-  }
-  lastApp1State= app1State;
-
-  // --- 2. READ POTENTIOMETER ---
-  int rawPot = analogRead(POT_PIN);
-  int currentVolumeReading = map(rawPot, 0, 1023, 0, 100);
-  int difference = currentVolumeReading - stableVolume;
-
-  if (abs(difference) >= noiseThreshold) {
-    activeStatus = "VOLUME"; // Overwrites top line when tweaking audio knob
-    if (difference > 0) {
-      for (int i = 0; i < difference; i++) { Serial.println("VOL_UP"); delay(15); }
-    } else {
-      for (int i = 0; i < abs(difference); i++) { Serial.println("VOL_DOWN"); delay(15); }
-    }
-    stableVolume = currentVolumeReading;
-    changed = true;
-  }
-
-  if (changed) {
-    updateDisplay();
-  }
-  delay(10);
+  handleButtons();
+  handlePot();
 }
 
-// Clean, Modular Replacement UI Layout Engine
-void updateDisplay() {
+void onButtonPressed(uint8_t index) {
+  if (index == CAM_INDEX) {
+    // Toggle CAM state and show ON/OFF
+    camToggleOn = !camToggleOn;
+    camShowingToggle = true;
+  } else if (index == VC_INDEX) {
+    // Toggle VC state and show ON/OFF
+    vcToggleOn = !vcToggleOn;
+    vcShowingToggle = true;
+  } else {
+    // Any other button press reverts CAM/VC labels back to default text
+    camShowingToggle = false;
+    vcShowingToggle = false;
+  }
+}
+
+const char* getLabel(uint8_t index) {
+  if (index == CAM_INDEX && camShowingToggle) {
+    return camToggleOn ? "ON" : "OFF";
+  }
+  if (index == VC_INDEX && vcShowingToggle) {
+    return vcToggleOn ? "ON" : "OFF";
+  }
+  return DEFAULT_LABELS[index];
+}
+
+void handleButtons() {
+  for (uint8_t i = 0; i < 6; i++) {
+    bool currentState = digitalRead(BUTTON_PINS[i]);
+
+    if (currentState != lastState[i]) {
+      lastDebounceTime[i] = millis();
+    }
+
+    if ((millis() - lastDebounceTime[i]) > DEBOUNCE_MS) {
+      // Pressed = LOW because of INPUT_PULLUP wiring
+      if (currentState == LOW && lastState[i] == HIGH) {
+        Serial.print("KEY:");
+        Serial.println(KEY_NUMBERS[i]);
+        onButtonPressed(i);
+        flashLabel(i);
+      }
+    }
+
+    lastState[i] = currentState;
+  }
+}
+
+void handlePot() {
+  if (millis() - lastPotRead < POT_READ_INTERVAL) return;
+  lastPotRead = millis();
+
+  int raw = analogRead(POT_PIN);          // 0-1023
+  int percent = map(raw, 0, 1023, 0, 100);
+
+  // Small deadband so it doesn't jitter at the edges
+  if (abs(percent - lastVolPercent) >= 1) {
+    lastVolPercent = percent;
+    Serial.print("VOL:");
+    Serial.println(percent);
+    drawUI(percent);
+  }
+}
+
+void drawUI(int volPercent) {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  
-  // --- LINE 1: THE DYNAMIC REPLACING ACTION STATUS (Size 1) ---
-  display.setTextSize(1); 
-  display.setCursor(0, 0); 
-  display.print("STATUS: ");
-  display.print(activeStatus); // This string completely handles swaps!
-  
-  // Sharp structural separation line
-  display.drawFastHLine(0, 10, 128, SSD1306_WHITE);
-  
-  // --- LINE 2: MAIN VOLUME INTERFACE (Size 3) ---
-  display.setTextSize(1);
-  display.setCursor(0, 24);
-  display.print("LEVEL");
 
-  display.setTextSize(3); 
-  display.setCursor(52, 18); 
-  display.print(stableVolume);
-  
-  // --- LINE 3: SLIDER PROGRESS BAR ---
-  display.drawRect(0, 52, 128, 10, SSD1306_WHITE);
-  int barWidth = map(stableVolume, 0, 100, 0, 124);
-  display.fillRect(2, 54, barWidth, 6, SSD1306_WHITE);
-  
+  // 6 labels in a 3x2 grid (top area)
+  display.setTextSize(1);
+  int colW = SCREEN_WIDTH / 3;
+  for (uint8_t i = 0; i < 6; i++) {
+    int col = i % 3;
+    int row = i / 3;
+    int x = col * colW + 8;
+    int y = row * 16 + 2;
+    display.setCursor(x, y);
+    display.print(getLabel(i));
+  }
+
+  // Divider line
+  display.drawLine(0, 36, SCREEN_WIDTH, 36, SSD1306_WHITE);
+
+  // Volume row: "-" on far left, speaker icon centered, "+" on far right
+  int rowY = 44;     // top of this row's drawing area
+  int rowH = 18;      // available height for icon
+
+  // Minus sign (left)
+  display.setTextSize(2);
+  display.setCursor(4, rowY + 1);
+  display.print("-");
+
+  // Plus sign (right)
+  display.setCursor(SCREEN_WIDTH - 16, rowY + 1);
+  display.print("+");
+
+  // Speaker icon (centered) - body + sound waves scaled by volume
+  drawSpeakerIcon(SCREEN_WIDTH / 2, rowY + rowH / 2, volPercent);
+
+  display.setTextSize(1);
   display.display();
+}
+
+void drawSpeakerIcon(int cx, int cy, int volPercent) {
+  // Speaker body: small trapezoid+rectangle made of two filled triangles/rects
+  int bodyW = 8;
+  int bodyH = 10;
+  int x = cx - 10;
+  int y = cy - bodyH / 2;
+
+  // Rectangle part of speaker body
+  display.fillRect(x, y + 2, 4, bodyH - 4, SSD1306_WHITE);
+  // Triangle (cone) part of speaker body
+  display.fillTriangle(x + 4, y + 2, x + 4, y + bodyH - 2, x + bodyW, y, SSD1306_WHITE);
+  display.fillTriangle(x + 4, y + bodyH - 2, x + bodyW, y, x + bodyW, y + bodyH, SSD1306_WHITE);
+
+  // Sound wave arcs - number of arcs shown depends on volume level
+  int numArcs = 0;
+  if (volPercent > 0) numArcs = 1;
+  if (volPercent > 33) numArcs = 2;
+  if (volPercent > 66) numArcs = 3;
+
+  int arcX = x + bodyW + 3;
+  for (int i = 0; i < numArcs; i++) {
+    int radius = 3 + i * 3;
+    // Draw a partial arc using a circle clipped visually by only drawing right side
+    for (int angle = -40; angle <= 40; angle += 10) {
+      float rad = angle * 3.14159 / 180.0;
+      int px = arcX + (int)(radius * cos(rad));
+      int py = cy + (int)(radius * sin(rad));
+      display.drawPixel(px, py, SSD1306_WHITE);
+    }
+  }
+
+  if (volPercent == 0) {
+    // Draw an "X" next to speaker to indicate muted
+    display.drawLine(arcX, cy - 4, arcX + 6, cy + 4, SSD1306_WHITE);
+    display.drawLine(arcX, cy + 4, arcX + 6, cy - 4, SSD1306_WHITE);
+  }
+}
+
+void flashLabel(uint8_t index) {
+  // Briefly invert the pressed button's label cell for visual feedback
+  int col = index % 3;
+  int row = index / 3;
+  int colW = SCREEN_WIDTH / 3;
+  int x = col * colW;
+  int y = row * 16;
+
+  display.fillRect(x, y, colW, 14, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(x + 8, y + 2);
+  display.print(getLabel(index));
+  display.display();
+  delay(80);
+
+  drawUI(lastVolPercent < 0 ? 0 : lastVolPercent);
 }
